@@ -23,6 +23,7 @@ from .regulatory.rolling import Reading, average
 from .reservoir.turnover import State, project_age
 from .treatment.backwash import Filter, choose as choose_filter
 from .treatment.chlorine_ct import Segment, effective_ct
+from .treatment.chlorine_desk import Policy as ChlorinePolicy, Reading as ChlorineReading, evaluate_window as evaluate_chlorine_window, evaluation_view as chlorine_evaluation_view
 from .treatment.coagulant import Jar, recommend
 from .work.confined import Permit, valid
 
@@ -125,5 +126,11 @@ def evaluate(name: str, p: dict[str, Any]) -> dict[str, Any]:
         rows = [Reading(_dt(x["at"]), float(x["value"])) for x in p["readings"]]
         result = average(rows, timedelta(hours=float(p["window_hours"])), _dt(p["at"]))
         return {"decision": "report" if result is not None else "defer", "value": result, "evidence": {"reading_count": len(rows)}}
+    if name == "chlorine_release_proof":
+        rows = [ChlorineReading(str(p["chain"]), str(x["asset"]), str(x["metric"]), _dt(x["start"]), _dt(x["end"]), float(x["value"]), int(x.get("sequence", i + 1))) for i, x in enumerate(p["readings"])]
+        pol = p.get("policy") or {}
+        policy = ChlorinePolicy(required_ct=float(pol.get("required_ct", 10.0)), residual_min=float(pol.get("residual_min", 0.2)), residual_max=float(pol.get("residual_max", 4.0)), baffling=float(pol.get("baffling", 1.0)))
+        result = evaluate_chlorine_window(rows, str(p["chain"]), _dt(p["start"]), _dt(p["end"]), policy)
+        return {"decision": "release" if result.provable else "open_case", "value": result.ct, "evidence": chlorine_evaluation_view(result, policy)}
     raise ValueError("unknown workflow")
 
